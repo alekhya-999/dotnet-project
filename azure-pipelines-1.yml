@@ -1,0 +1,83 @@
+# ASP.NET
+# Build and test ASP.NET projects.
+# Add steps that publish symbols, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/apps/aspnet/build-aspnet-4
+
+trigger:
+- main
+
+# pool:
+#   vmImage: 'windows-latest'
+
+variables:
+  solution: '**/*.sln'
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Release'
+
+stages: 
+- stage: Build stage
+  displayName: Build
+  jobs: 
+    - job: Build
+      displayName: Build
+      pool:
+       vmImage: 'windows-latest'
+
+      steps:
+      - task: NuGetToolInstaller@1
+
+      - task: NuGetCommand@2
+        inputs:
+          restoreSolution: '$(solution)'
+
+      - task: VSBuild@1
+        inputs:
+          solution: '$(solution)'
+          msbuildArgs: '/p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:PackageLocation="$(build.artifactStagingDirectory)"'
+          platform: '$(buildPlatform)'
+          configuration: '$(buildConfiguration)'
+
+      - task: CopyFiles@2
+        inputs:
+          SourceFolder: '$(Build.SourcesDirectory)/biceptemplates'
+          Contents: '**'
+          TargetFolder: '$(build.artifactStagingDirectory)/biceptemplates'
+
+      - task: PublishBuildArtifacts@1
+        inputs:
+          PathtoPublish: '$(build.artifactStagingDirectory)'
+          ArtifactName: 'drop'
+          publishLocation: Container
+          
+- stage: Release
+  displayName: Release stage
+  jobs:
+    - job: Release
+      displayName: Release
+      pool:
+       vmImage: 'windows-latest'
+      environment: Dev 
+      
+      strategy:
+        runOnce: 
+          deploy: 
+            steps: 
+              
+              - task: AzureCLI@2
+                inputs:
+                  azureSubscription: 'enter service connection - azure service connection (connection1)'
+                  scriptType: 'bash'
+                  scriptLocation: 'inlineScript'
+                  inlineScript: |
+                    cd "$(Pipeline.Workspace)/drop/biceptemplates"
+                    
+                    az deployment sub  create --location eastus --template-file main.bicep  --parameters devparameter.bicepparam
+
+
+              - task: AzureRmWebAppDeployment@5
+                inputs:
+                  ConnectionType: 'AzureRM'
+                  azureSubscription: 'enter service connection - azure service connection (connection1)'
+                  appType: 'webApp'
+                  WebAppName: 'myWindowsWebApp010'
+                  packageForLinux: '$(System.DefaultWorkingDirectory)/**/*.zip'
